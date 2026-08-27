@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fuel-Optimal Route Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e9ef; --muted:#98a1b3; --accent:#4ade80; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--text); display:flex; height:100vh; overflow:hidden; }
+  #sidebar { width:380px; flex:0 0 380px; background:var(--panel); border-right:1px solid var(--line);
+             display:flex; flex-direction:column; }
+  #map { flex:1; }
+  header { padding:16px; border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 4px; font-size:16px; }
+  header p { margin:0; color:var(--muted); font-size:12px; }
+  form { padding:16px; border-bottom:1px solid var(--line); display:grid; gap:10px; }
+  label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  input { width:100%; padding:9px 10px; border-radius:6px; border:1px solid var(--line);
+          background:#0d0f14; color:var(--text); font-size:14px; }
+  button { padding:10px; border:0; border-radius:6px; background:var(--accent); color:#06240f;
+           font-weight:650; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:progress; }
+  #summary { padding:16px; border-bottom:1px solid var(--line); display:none; }
+  .totals { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .metric { background:#0d0f14; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .metric .v { font-size:19px; font-weight:680; }
+  .metric .k { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  #stops { overflow-y:auto; flex:1; padding:8px 16px 24px; }
+  .stop { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px; background:#0d0f14; }
+  .stop .n { font-weight:640; font-size:13px; }
+  .stop .m { color:var(--muted); font-size:12px; }
+  .stop .r { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; }
+  .price { color:var(--accent); font-weight:640; }
+  #status { padding:0 16px 16px; color:var(--muted); font-size:12px; }
+  .err { color:#fca5a5; }
+  .leaflet-popup-content { font:13px/1.45 -apple-system,sans-serif; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <header>
+    <h1>Fuel-Optimal Route</h1>
+    <p>500-mile range &middot; 10 MPG &middot; cheapest truck-stop diesel</p>
+  </header>
+  <form id="f">
+    <div><label for="start">Start</label><input id="start" value="{{ start }}" autocomplete="off"></div>
+    <div><label for="finish">Finish</label><input id="finish" value="{{ finish }}" autocomplete="off"></div>
+    <button id="go" type="submit">Plan route</button>
+  </form>
+  <div id="summary">
+    <div class="totals">
+      <div class="metric"><div class="k">Total fuel cost</div><div class="v" id="cost">&mdash;</div></div>
+      <div class="metric"><div class="k">Distance</div><div class="v" id="dist">&mdash;</div></div>
+      <div class="metric"><div class="k">Gallons</div><div class="v" id="gal">&mdash;</div></div>
+      <div class="metric"><div class="k">Fuel stops</div><div class="v" id="nstops">&mdash;</div></div>
+    </div>
+  </div>
+  <div id="stops"></div>
+  <div id="status"></div>
+</div>
+<div id="map"></div>
+
+<script>
+const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let layer = L.layerGroup().addTo(map);
+const $ = (id) => document.getElementById(id);
+const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function pin(color, text) {
+  return L.divIcon({
+    className: '',
+    html: '<div style="background:' + color + ';width:26px;height:26px;border-radius:50%;border:2px solid #fff;' +
+          'display:flex;align-items:center;justify-content:center;color:#06240f;font:700 12px sans-serif;' +
+          'box-shadow:0 1px 6px rgba(0,0,0,.5)">' + text + '</div>',
+    iconSize: [26, 26], iconAnchor: [13, 13]
+  });
+}
+
+async function plan(evt) {
+  if (evt) evt.preventDefault();
+  const start = $('start').value.trim(), finish = $('finish').value.trim();
+  if (!start || !finish) return;
+
+  $('go').disabled = true;
+  $('status').className = '';
+  $('status').textContent = 'Planning…';
+  layer.clearLayers();
+  $('summary').style.display = 'none';
+  $('stops').innerHTML = '';
+
+  const url = '/api/v1/route-plan/?start=' + encodeURIComponent(start) + '&finish=' + encodeURIComponent(finish);
+  let data;
+  try {
+    const res = await fetch(url);
+    data = await res.json();
+  } catch (err) {
+    $('status').className = 'err';
+    $('status').textContent = 'Request failed: ' + err;
+    $('go').disabled = false;
+    return;
+  }
+
+  if (data.error && !data.route) {
+    $('status').className = 'err';
+    $('status').textContent = data.error.message;
+    $('go').disabled = false;
+    return;
+  }
+
+  const line = data.route.geometry.coordinates.map(c => [c[1], c[0]]);
+  L.polyline(line, { color: '#4ade80', weight: 4, opacity: .85 }).addTo(layer);
+  map.fitBounds(L.polyline(line).getBounds(), { padding: [30, 30] });
+
+  L.marker([data.start.latitude, data.start.longitude], { icon: pin('#38bdf8', 'A') })
+    .bindPopup('<b>Start</b><br>' + data.start.resolved_to).addTo(layer);
+  L.marker([data.finish.latitude, data.finish.longitude], { icon: pin('#f472b6', 'B') })
+    .bindPopup('<b>Finish</b><br>' + data.finish.resolved_to).addTo(layer);
+
+  if (!data.fuel_plan) {
+    $('status').className = 'err';
+    $('status').textContent = data.error ? data.error.message : 'No fuel plan available.';
+    $('go').disabled = false;
+    return;
+  }
+
+  const fp = data.fuel_plan;
+  $('cost').textContent = money(fp.total_cost_usd);
+  $('dist').textContent = Math.round(data.route.total_distance_miles).toLocaleString() + ' mi';
+  $('gal').textContent = fp.total_gallons.toFixed(1);
+  $('nstops').textContent = fp.fuel_stop_count;
+  $('summary').style.display = 'block';
+
+  fp.stops.forEach(s => {
+    L.marker([s.station.latitude, s.station.longitude], { icon: pin('#4ade80', String(s.sequence)) })
+      .bindPopup('<b>' + s.station.name + '</b><br>' + s.station.city + ', ' + s.station.state +
+                 '<br>$' + s.price_per_gallon.toFixed(3) + '/gal &middot; ' +
+                 s.gallons_purchased.toFixed(1) + ' gal &middot; ' + money(s.cost_usd) +
+                 '<br><small>mile ' + Math.round(s.distance_along_route_miles) + ' of the route</small>')
+      .addTo(layer);
+
+    const div = document.createElement('div');
+    div.className = 'stop';
+    div.innerHTML = '<div class="n">' + s.sequence + '. ' + s.station.name + '</div>' +
+      '<div class="m">' + s.station.city + ', ' + s.station.state +
+      ' &middot; mile ' + Math.round(s.distance_along_route_miles) + '</div>' +
+      '<div class="r"><span class="price">$' + s.price_per_gallon.toFixed(3) + '/gal</span>' +
+      '<span>' + s.gallons_purchased.toFixed(1) + ' gal &rarr; ' + money(s.cost_usd) + '</span></div>';
+    $('stops').appendChild(div);
+  });
+
+  const m = data.meta;
+  $('status').textContent = m.elapsed_ms + ' ms · ' + m.external_api_calls +
+    ' external API call(s) · ' + m.stations_considered + ' stations near route' +
+    (m.cached ? ' · cached' : '');
+  $('go').disabled = false;
+}
+
+$('f').addEventListener('submit', plan);
+plan();
+</script>
+</body>
+</html>
