@@ -127,6 +127,16 @@ class RoutePlanTests(ApiTestCase):
             first["fuel_plan"]["total_cost_usd"], second["fuel_plan"]["total_cost_usd"]
         )
 
+    def test_cached_response_does_not_report_stale_timings(self):
+        """Timings describe the original computation, so a cache hit must drop them."""
+        params = {"start": "39.9,-100.0", "finish": "40.1,-75.0"}
+        with self.patched_route():
+            first = self.client.get(PLAN_URL, params).json()
+            second = self.client.get(PLAN_URL, params).json()
+        self.assertIn("timings_ms", first["meta"])
+        self.assertNotIn("timings_ms", second["meta"])
+        self.assertTrue(second["meta"]["cached"])
+
     def test_post_with_json_body_works(self):
         with self.patched_route():
             response = self.client.post(

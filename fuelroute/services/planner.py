@@ -132,6 +132,9 @@ def build_plan(request: PlanRequest) -> dict:
         payload["meta"] = dict(payload["meta"])
         payload["meta"]["cached"] = True
         payload["meta"]["external_api_calls"] = 0
+        # The stored timings describe the original computation, not this request;
+        # reporting them next to "cached": true would be misleading.
+        payload["meta"].pop("timings_ms", None)
         payload["meta"]["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
         return _apply_geometry_mode(payload, request.geometry)
 

@@ -230,7 +230,7 @@ the slow one.
 ## Tests
 
 ```bash
-python manage.py test          # 78 tests, ~0.2s, no network required
+python manage.py test          # 79 tests, ~0.2s, no network required
 ```
 
 Routing is mocked throughout. Coverage includes the DP against a brute-force
