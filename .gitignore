@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+*.log
+
+# Build inputs (large; re-downloaded by scripts/build_station_coordinates.py)
+.geonames_cache/
+
+# Tooling / OS
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+
+# Local Postman workspace linkage (contains a personal workspace id)
+.postman/
+postman/globals/
