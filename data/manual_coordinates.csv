@@ -1,0 +1,5 @@
+city_key,state,latitude,longitude,source,note
+CORINTH,ME,45.00374,-69.02344,manual,resolved via Nominatim free-text; not in GeoNames under this name
+CRESCENT,PA,40.55632,-80.22875,manual,resolved via Nominatim free-text; not in GeoNames under this name
+PUEBLO OF ACOMA,NM,34.77631,-107.76133,manual,resolved via Nominatim free-text; not in GeoNames under this name
+WILLOW BEACH,AZ,35.86978,-114.66007,manual,resolved via Nominatim free-text; not in GeoNames under this name
